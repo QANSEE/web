@@ -42,6 +42,7 @@ openerp.web_widget_x2many_2d_matrix = function(instance)
         show_column_totals: true,
         // this will be filled with the model's fields_get
         fields: {},
+        emptycells: {},  // to store x/y axis of all empty cells
 
         // read parameters
         init: function(field_manager, node)
@@ -70,6 +71,8 @@ openerp.web_widget_x2many_2d_matrix = function(instance)
                     return row[field][0];
                 }
             }
+            if (row === undefined)
+                return false;
             return row[field];
         },
 
@@ -131,7 +134,7 @@ openerp.web_widget_x2many_2d_matrix = function(instance)
                             var model = new instance.web.Model(self.fields[field].relation);
                             deferrends.push(model.call(
                                 'name_get',
-                                [_.map(_.keys(rows), function(key) {return parseInt(key)})])
+                                [_.map(_.reject(_.keys(rows), function(key) {return key!=false}), function(key) {return parseInt(key)})])
                                 .then(function(names)
                                 {
                                     _.each(names, function(name)
@@ -211,6 +214,16 @@ openerp.web_widget_x2many_2d_matrix = function(instance)
         // return row id of a coordinate
         get_xy_id: function(x, y)
         {
+            if (!(x in this.by_x_axis)) {
+                var id = _.uniqueId(this.dataset.virtual_id_prefix);
+                this.emptycells[id] = [x,y];
+                return id;
+            }
+            if (!(y in this.by_x_axis[x])) {
+                var id = _.uniqueId(this.dataset.virtual_id_prefix);
+                this.emptycells[id] = [x,y];
+                return id;
+            }
             return this.by_x_axis[x][y]['id'];
         },
 
@@ -337,6 +350,8 @@ openerp.web_widget_x2many_2d_matrix = function(instance)
         {
             var $this = jQuery(e.currentTarget),
                 val = $this.val();
+            var self = this;
+            self.$target = $this;
             if(this.validate_xy_value(val))
             {
                 var data = {}, value = this.parse_xy_value(val);
@@ -345,9 +360,32 @@ openerp.web_widget_x2many_2d_matrix = function(instance)
                 $this.siblings('.read').text(this.format_xy_value(value));
                 $this.val(this.format_xy_value(value));
 
+                if ($this.data('id') in this.emptycells) {
+                    var values = {}
+                    values[this.field_x_axis] = this.emptycells[$this.data('id')][0];
+                    values[this.field_y_axis] = this.emptycells[$this.data('id')][1];
+                    delete this.emptycells[$this.data('id')];
+                    var cached = {
+                        id: $this.data('id'),
+                        values: values
+                        };
+                    this.dataset.to_create.push(cached);
+                    this.dataset.cache.push(cached);
+                    this.dataset.set_ids(self.dataset.ids.concat([$this.data('id')]));
+
+                    //this.dataset.create(data).done(function(r) {
+                    //    self.$target.data('id', r);
+                    //    self.dataset.set_ids(self.dataset.ids.concat([r]));
+                    //    self.dataset.write(r, {}); //{'planned_hours':2});  // to mark changed
+                    //    //self.trigger("dataset_changed", r, data);
+                    //    self.compute_totals();
+                    //});
+                }
+
                 this.dataset.write($this.data('id'), data);
-                $this.parent().removeClass('oe_form_invalid');
                 this.compute_totals();
+
+                $this.parent().removeClass('oe_form_invalid');
             }
             else
             {
